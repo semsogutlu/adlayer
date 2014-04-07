@@ -9,7 +9,12 @@ namespace LdapLayer
         public static UserInfo GetUniqueFirstNameLastName(UserInfo userInfo, PrincipalContext root)
         {
             //Search if there are already users with same first and last name
-            var up = new UserPrincipal(root) { Surname = "*Smith*", GivenName = "*Sophia*" };
+            var up = new UserPrincipal(root)
+            {
+                Surname =  string.Format("*{0}*",userInfo.FirstName),
+                GivenName = string.Format("*{0}*", userInfo.LastName)
+            };
+
             var ps = new PrincipalSearcher(up);
             var srcCount = ps.FindAll().Count();
 
