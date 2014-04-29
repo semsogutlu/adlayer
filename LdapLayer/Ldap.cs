@@ -1,7 +1,7 @@
 ﻿using System;
 using System.DirectoryServices.AccountManagement;
 using LdapLayer.Model;
-using TaskStatus = System.Threading.Tasks.TaskStatus;C:\hari\LdapLayer\LdapLayer\Ldap.cs
+using TaskStatus = System.Threading.Tasks.TaskStatus;
 
 namespace LdapLayer
 {
