@@ -53,7 +53,6 @@ namespace LdapTest
         public void Ldap_Tests_CreateNewAccount_ExceptionHandling()
         {
             ServerInfo.Server = "1.1.1.1.1";
-
             var userInfo = new UserInfo
             {
                 Email = String.Format("{0}@test.org", Guid.NewGuid().ToString()),
