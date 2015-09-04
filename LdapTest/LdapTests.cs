@@ -29,8 +29,6 @@ namespace LdapTest
                 Password = "Password_1$"
             };
 
-            string error;
-            //var user = _ldapAuthentication.CreateNewLdapAccount(userInfo,out error);
             _ldapAuthentication.UpdateLdapAccount(oldUserInfo, newUserInfo);
         }
     }
