@@ -1,4 +1,5 @@
 ﻿using System;
+using System.DirectoryServices;
 using System.DirectoryServices.AccountManagement;
 using LdapLayer.Model;
 using TaskStatus = System.Threading.Tasks.TaskStatus;
@@ -124,21 +125,36 @@ namespace LdapLayer
                     {
                         preNewUserInfo = LdapHelper.GetUniqueFirstNameLastName(newUserInfo, RootPrincipal);
                     }
-                    user.SamAccountName = preNewUserInfo.SamName;
-                    user.DisplayName = String.Format("{0} {1}", preNewUserInfo.FirstName, newUserInfo.LastName);
-                    user.Surname = preNewUserInfo.LastName;
-                    user.GivenName = preNewUserInfo.FirstName;
-                    user.UserPrincipalName = preNewUserInfo.Email;
-                    user.EmailAddress = preNewUserInfo.Email;
 
-                    if (!String.IsNullOrEmpty(newUserInfo.Password))
+
+                    using (DirectoryEntry entry = (DirectoryEntry) user.GetUnderlyingObject())
                     {
-                        user.Enabled = true;
-                        user.PasswordNeverExpires = true;
-                        user.SetPassword(newUserInfo.Password);
+                        entry.InvokeSet("sAMAccountName", preNewUserInfo.SamName);
+                        entry.InvokeSet("sn", preNewUserInfo.LastName);
+                        entry.InvokeSet("givenName", preNewUserInfo.FirstName);
+                        entry.InvokeSet("userPrincipalName", preNewUserInfo.Email);
+                        entry.Invoke("SetPassword", new object[] { newUserInfo.Password });
+                        entry.InvokeSet("displayName", preNewUserInfo.SamName);
+                        entry.InvokeSet("mail", preNewUserInfo.Email);
+                        entry.CommitChanges();
+
+                        entry.Rename("CN=" + preNewUserInfo.SamName);
+                        entry.CommitChanges();
                     }
 
-                    user.Save();
+
+
+                    
+                    //user.SamAccountName = preNewUserInfo.SamName;
+                    //user.DisplayName = String.Format("{0} {1}", preNewUserInfo.FirstName, newUserInfo.LastName);
+                    //user.Surname = preNewUserInfo.LastName;
+                    //user.GivenName = preNewUserInfo.FirstName;
+                    //user.UserPrincipalName = preNewUserInfo.Email;
+                    //user.EmailAddress = preNewUserInfo.Email;
+                    
+                    
+
+                    //user.Save();
                     return string.Empty;
                 }
                 return string.Empty;

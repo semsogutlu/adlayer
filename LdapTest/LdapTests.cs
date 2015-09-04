@@ -15,18 +15,18 @@ namespace LdapTest
         {
             var oldUserInfo = new UserInfo
             {
-                Email = "thisisatest@tntp.org",
-                FirstName = "00002",
-                LastName = "00002",
+                Email = "thisisatest@xxxx.org",
+                FirstName = "00003",
+                LastName = "00003",
                 Password = "Password_1$"
             };
 
             var newUserInfo = new UserInfo
             {
-                Email = "thisisatest@tntp.org",
-                FirstName = "00003",
-                LastName = "00003",
-                Password = "Password_1$"
+                Email = "thisisatest_xxxx@xxxx.org",
+                FirstName = "00017",
+                LastName = "00017",
+                Password = "1.xxxxx.1"
             };
 
             _ldapAuthentication.UpdateLdapAccount(oldUserInfo, newUserInfo);
