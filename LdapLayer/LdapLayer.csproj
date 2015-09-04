@@ -31,6 +31,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="System" />
+    <Reference Include="System.Configuration" />
     <Reference Include="System.Core" />
     <Reference Include="System.DirectoryServices" />
     <Reference Include="System.DirectoryServices.AccountManagement" />
@@ -41,6 +42,9 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="LdapSettings.cs" />
+    <Compile Include="Model\AccountStatus.cs" />
+    <Compile Include="Model\LdapServerUnavailableException.cs" />
     <Compile Include="Model\LdapTaskStatus.cs" />
     <Compile Include="Ldap.cs" />
     <Compile Include="LdapHelper.cs" />

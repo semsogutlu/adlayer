@@ -1,4 +1,5 @@
-﻿using System.DirectoryServices.AccountManagement;
+﻿using System.Collections.Generic;
+using System.DirectoryServices.AccountManagement;
 using System.Linq;
 using LdapLayer.Model;
 
@@ -6,54 +7,6 @@ namespace LdapLayer
 {
     public class LdapHelper
     {
-        public static UserInfo GetUniqueFirstNameLastName(UserInfo userInfo, PrincipalContext root)
-        {
-            //Search if there are already users with same first and last name
-            var up = new UserPrincipal(root)
-            {
-                Surname =  string.Format("*{0}*",userInfo.LastName),
-                GivenName = string.Format("*{0}*", userInfo.FirstName)
-            };
-
-            var ps = new PrincipalSearcher(up);
-            var srcCount = ps.FindAll().Count();
-
-            var firstNameLast = string.Format("{0} {1}", userInfo.FirstName, userInfo.LastName);
-            if (srcCount < 1)
-            {
-                //No one contains the same first and last name
-                userInfo.SamName = firstNameLast;
-                if (firstNameLast.Length > 20)
-                {
-                    //If SamName length is greater than 20, Substring it.
-                    //Since no one contains same first and lastname , SamName will be unique
-                    userInfo.SamName = firstNameLast.Substring(0, 20);
-                }
-            }
-            else
-            {
-                //Some accounts already contain the same first and last name
-                //Create a name combo that is unique by adding the srcCount
-                var firstNameLastNameCount = string.Format("{0} {1}{2}", userInfo.FirstName, userInfo.LastName, srcCount);
-                if (firstNameLastNameCount.Length > 20)
-                {
-                    //Oops the name combo length is greater than 20, so Substring it to 20
-                    //However, retain the srcCount so even after Substring it will be unique
-                    var byHowMuch = firstNameLastNameCount.Length - 20;
-                    firstNameLast = firstNameLast.Substring(0, firstNameLast.Length - byHowMuch);
-                    userInfo.SamName = string.Format("{0}{1}", firstNameLast, srcCount);
-                }
-                else
-                {
-                    //Great, assign the SamName directly
-                    userInfo.SamName = firstNameLastNameCount;
-                }
-                userInfo.LastName = string.Format("{0}{1}", userInfo.LastName, srcCount);
-            }
-
-            return userInfo;
-        }
-
         public static bool LdapAccountExists(UserInfo userInfo, PrincipalContext root)
         {
             var user = GetLdapUser(userInfo, root);
@@ -66,17 +19,78 @@ namespace LdapLayer
             return user;
         }
 
-        public static UserPrincipal GetLdapUser(string userPrincipalName, PrincipalContext root)
+        public static UserInfo GetUniqueFirstNameLastName(UserInfo userInfo, PrincipalContext root)
         {
-            try
+            //Search if there are already users with same first and last name
+            var up = new UserPrincipal(root)
             {
-                var user = UserPrincipal.FindByIdentity(root, IdentityType.UserPrincipalName, userPrincipalName);
-                return user;
+                Surname = string.Format("*{0}*", userInfo.LastName),
+                GivenName = string.Format("*{0}*", userInfo.FirstName)
+            };
+
+            var safeFirstName = RemoveChars(userInfo.FirstName);
+            var safeLastName = RemoveChars(userInfo.LastName);
+
+            var ps = new PrincipalSearcher(up);
+            var srcCount = ps.FindAll().Count();
+
+            var firstNameLast = string.Format("{0} {1}", safeFirstName, safeLastName);
+            if (srcCount < 1)
+            {
+                userInfo.SamName = firstNameLast;
+                if (firstNameLast.Length > 20)
+                {
+                    userInfo.SamName = firstNameLast.Substring(0, 20);
+                }
             }
-            catch
+            else
             {
-                return null;
-            }           
+                var firstNameLastNameCount = string.Format("{0} {1}{2}", safeFirstName, safeLastName, srcCount);
+                if (firstNameLastNameCount.Length > 20)
+                {
+                    var byHowMuch = firstNameLastNameCount.Length - 20;
+                    firstNameLast = firstNameLast.Substring(0, firstNameLast.Length - byHowMuch);
+                    userInfo.SamName = string.Format("{0}{1}", firstNameLast, srcCount);
+                }
+                else
+                {
+                    userInfo.SamName = firstNameLastNameCount;
+                }
+                userInfo.LastName = string.Format("{0}{1}", userInfo.LastName, srcCount);
+            }
+
+            return userInfo;
+        }
+
+        private static readonly char[] _charsToEscape = { '\\', ',', '#', '+', '<', '>', ';', '"', '=' };
+
+        public static string RemoveChars(string str)
+        {
+            // if you do not remove invalid characters or trailing periods from the SamAccountName, you get this error:
+            // A device attached to the system is not functioning.
+
+            var charsToRemove = _charsToEscape;
+            var ret = str;
+            foreach (var chr in charsToRemove)
+            {
+                ret = ret.Replace(chr.ToString(), "");
+            }
+
+            ret = ret.TrimEnd('.');
+
+            return ret;
+        }
+
+        public static string EscapeChars(string str)
+        {
+            // https://social.technet.microsoft.com/wiki/contents/articles/5312.active-directory-characters-to-escape.aspx
+            var ret = str;
+            foreach (var chr in _charsToEscape)
+            {
+                ret = ret.Replace(chr.ToString(), "\\" + chr);
+            }
+
+            return ret;
         }
     }
 }

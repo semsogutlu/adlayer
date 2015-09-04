@@ -6,54 +6,60 @@ using TaskStatus = System.Threading.Tasks.TaskStatus;
 namespace LdapLayer
 {
     /// <summary>
-    /// Using UserPrincipalName is used for creating accounts
-    /// UserPrincipalName is email address
+    /// Implementation: http://msdn.microsoft.com/en-us/library/bb344891(v=vs.100).aspx
+    /// Active Directory Implementation
     /// </summary>
-    public class Ldap
+    public class LdapAuthentication
     {
         private readonly PrincipalContext _rootPrincipal = null;
-        private readonly bool _connected = false;
-        public Ldap(ServerInfo serverInfo)
+        public PrincipalContext RootPrincipal
         {
+            get { return _rootPrincipal; }
+        }
+
+        public LdapAuthentication()
+        {
+            LdapSettings.refreshLdapSettings();
+            var server = LdapSettings.LdapServer1;
+            var admin = LdapSettings.LdapAdminUser;
+            var pwd = LdapSettings.LdapAdminPassword;
+            var container = LdapSettings.LdapContainer;
+
             try
             {
-                _rootPrincipal = new PrincipalContext(ContextType.Domain, 
-                    serverInfo.Server, 
-                    serverInfo.ServerContainer, 
-                    ContextOptions.Negotiate, 
-                    serverInfo.Admin, 
-                    serverInfo.Password);
-                _connected = true;
+                _rootPrincipal = new PrincipalContext(ContextType.Domain, server, container, ContextOptions.Negotiate, admin, pwd);
+                return;
             }
-            catch 
+            catch (PrincipalServerDownException pex)
             {
-                _connected = false;
+                server = LdapSettings.LdapServer2;
+                //_rootPrincipal = new PrincipalContext(ContextType.Domain, server, container, ContextOptions.Negotiate,admin, pwd);
+            }
+
+            try
+            {
+                _rootPrincipal = new PrincipalContext(ContextType.Domain, server, container, ContextOptions.Negotiate, admin, pwd);
+            }
+            catch (PrincipalServerDownException pex)
+            {
+                throw new LdapServerUnavailableException("Both ldap servers are down");
             }
         }
 
-        public UserInfo CreateNewLdapAccount(UserInfo userInfo)
+        public AccountStatus CreateNewLdapAccount(UserInfo userInfo, out string errorText, bool pswdPolicyChk = false)
         {
-            //If server down, return error
-            if (!_connected )
+            errorText = string.Empty;
+            if (LdapHelper.LdapAccountExists(userInfo, RootPrincipal))
             {
-                userInfo.TaskFailed = true;
-                userInfo.LdapTaskStatus = LdapTaskStatus.ServerConnectionFailed;
-                return userInfo;
+                return AccountStatus.AccountAlreadyExists;
             }
 
-            //If account already exists, return error
-            if (LdapHelper.LdapAccountExists(userInfo, _rootPrincipal))
-            {
-                userInfo.TaskFailed = true;
-                userInfo.LdapTaskStatus = LdapTaskStatus.AccountAlreadyExists;
-                return userInfo;
-            }
-
-            //Try creating new account
             try
             {
-                var preNewUserInfo = LdapHelper.GetUniqueFirstNameLastName(userInfo, _rootPrincipal);
-                var newUser = new UserPrincipal(_rootPrincipal)
+                userInfo.FirstName = LdapHelper.EscapeChars(userInfo.FirstName);
+                userInfo.LastName = LdapHelper.EscapeChars(userInfo.LastName);
+                var preNewUserInfo = LdapHelper.GetUniqueFirstNameLastName(userInfo, RootPrincipal);
+                var newUser = new UserPrincipal(RootPrincipal)
                 {
                     SamAccountName = preNewUserInfo.SamName,
                     DisplayName = String.Format("{0} {1}", preNewUserInfo.FirstName, preNewUserInfo.LastName),
@@ -62,150 +68,113 @@ namespace LdapLayer
                     UserPrincipalName = preNewUserInfo.Email,
                     EmailAddress = preNewUserInfo.Email,
                 };
-                newUser.ExpirePasswordNow();
+
+                if (!String.IsNullOrEmpty(userInfo.Password))
+                {
+                    newUser.Enabled = true;
+                    newUser.PasswordNeverExpires = true;
+                    newUser.SetPassword(userInfo.Password);
+                }
+                else
+                {
+                    newUser.ExpirePasswordNow();
+                }
                 newUser.Save();
-                userInfo.LdapTaskStatus = LdapTaskStatus.AccountCreatedSuccessfully;                
+                return AccountStatus.NewAccount;
             }
             catch (Exception ex)
             {
-                userInfo.TaskFailed = true;
-                userInfo.LdapTaskStatus = LdapTaskStatus.AccountCreationFailed;
-                userInfo.Exception = ex;
+                errorText = String.Format("Exception creating LDAP account for {0} with exception {1}", userInfo.Email, ex.Message);
+                return AccountStatus.AccountCreationFailed;
             }
-
-            return userInfo;
         }
 
-        public UserInfo SetLdapAccountPassword(UserInfo userInfo)
+        public string SetLdapAccountPassword(UserInfo userInfo, string passWord)
         {
-            //If server down, return error
-            if (!_connected)
-            {
-                SetFailedConnectedInfo(userInfo);
-                return userInfo;
-            }
-
-            //If account does not exist, return error
-            var user = LdapHelper.GetLdapUser(userInfo, _rootPrincipal);
-            if (user==null)
-            {
-                userInfo.TaskFailed = true;
-                userInfo.LdapTaskStatus = LdapTaskStatus.AccountDoesnotExist;
-                return userInfo;
-            }
-
-            //If password is null
-            if (String.IsNullOrEmpty(userInfo.Password))
-            {
-                userInfo.TaskFailed = true;
-                userInfo.LdapTaskStatus = LdapTaskStatus.PasswordCannotBeNull;
-                return userInfo;
-            }
-
+            var user = LdapHelper.GetLdapUser(userInfo, RootPrincipal);
             try
             {
-                user.Enabled = true;
-                user.PasswordNeverExpires = true;
-                user.SetPassword(userInfo.Password);
-                user.Save();
-                userInfo.LdapTaskStatus=LdapTaskStatus.PasswordResetSuccessful;
+                if (user != null)
+                {
+                    user.Enabled = true;
+                    user.PasswordNeverExpires = true;
+                    user.SetPassword(passWord);
+                    user.Save();
+                    return string.Empty;
+                }
+                return string.Empty;
             }
             catch (Exception ex)
             {
-                userInfo.TaskFailed = true;
-                userInfo.LdapTaskStatus = LdapTaskStatus.PasswordResetFailed;
-                userInfo.Exception = ex;
+                var error = String.Format("Exception setting password for {0} with exception {1}", userInfo.Email, ex.Message);
+                return error;
             }
-
-            return userInfo;
         }
 
-        //public UserInfo UpdateLdapAccount(UserInfo oldUserInfo, UserInfo newUserInfo)
-        //{
-        //    //If server down, return error
-        //    if (!_connected)
-        //    {
-        //        SetFailedConnectedInfo(oldUserInfo);
-        //        return oldUserInfo;
-        //    }
-
-        //    //If account does not exist, return error
-        //    var user = LdapHelper.GetLdapUser(oldUserInfo, _rootPrincipal);
-        //    if (user == null)
-        //    {
-        //        oldUserInfo.TaskFailed = true;
-        //        oldUserInfo.LdapTaskStatus = LdapTaskStatus.AccountDoesnotExist;
-        //        return oldUserInfo;
-        //    }
-
-        //    var preNewUserInfo = newUserInfo;
-        //    try
-        //    {
-        //        preNewUserInfo.SamName = user.SamAccountName;
-        //        if (newUserInfo.FirstName.ToLower() != user.GivenName.ToLower() || newUserInfo.LastName.ToLower() != user.Surname.ToLower())
-        //        {
-        //            preNewUserInfo = LdapHelper.GetUniqueFirstNameLastName(newUserInfo, _rootPrincipal);
-        //        }
-        //        user.SamAccountName = preNewUserInfo.SamName;
-        //        user.DisplayName = String.Format("{0} {1}", preNewUserInfo.FirstName, newUserInfo.LastName);
-        //        user.Surname = preNewUserInfo.LastName;
-        //        user.GivenName = preNewUserInfo.FirstName;
-        //        user.UserPrincipalName = preNewUserInfo.Email;
-        //        user.EmailAddress = preNewUserInfo.Email;
-        //        user.Save();
-
-        //        preNewUserInfo.LdapTaskStatus = LdapTaskStatus.UpdatedAccountSuccessfully;
-        //    }
-        //    catch (Exception ex)
-        //    {
-        //        preNewUserInfo.TaskFailed = true;
-        //        preNewUserInfo.LdapTaskStatus = LdapTaskStatus.FailedToUpdateAccount;
-        //        preNewUserInfo.Exception = ex;
-        //    }
-
-        //    return preNewUserInfo;
-        //}
-
-        public UserInfo GetUser(string userPrincipalName)
+        public string UpdateLdapAccount(UserInfo oldUserInfo, UserInfo newUserInfo)
         {
-            var user = LdapHelper.GetLdapUser(userPrincipalName, _rootPrincipal);
-            if (user == null)
-            {
-                return null;
-            }
-
-            var userInfo = new UserInfo
-            {
-                FirstName=user.GivenName,
-                LastName=user.Surname,
-                Email=user.UserPrincipalName,
-            };
-
-            return userInfo;
-        }
-
-        public bool VerifyUser(UserInfo userInfo)
-        {
-            if (_connected == false)
-            {
-                return false;
-            }
-
+            var user = LdapHelper.GetLdapUser(oldUserInfo, RootPrincipal);
             try
             {
-                var user = _rootPrincipal.ValidateCredentials(userInfo.Email, userInfo.Password);
-                return user;
+                if (user != null)
+                {
+                    var preNewUserInfo = newUserInfo;
+                    preNewUserInfo.SamName = user.SamAccountName;
+                    if (newUserInfo.FirstName.ToLower() != user.GivenName.ToLower() || newUserInfo.LastName.ToLower() != user.Surname.ToLower())
+                    {
+                        preNewUserInfo = LdapHelper.GetUniqueFirstNameLastName(newUserInfo, RootPrincipal);
+                    }
+                    user.SamAccountName = preNewUserInfo.SamName;
+                    user.DisplayName = String.Format("{0} {1}", preNewUserInfo.FirstName, newUserInfo.LastName);
+                    user.Surname = preNewUserInfo.LastName;
+                    user.GivenName = preNewUserInfo.FirstName;
+                    user.UserPrincipalName = preNewUserInfo.Email;
+                    user.EmailAddress = preNewUserInfo.Email;
+
+                    if (!String.IsNullOrEmpty(newUserInfo.Password))
+                    {
+                        user.Enabled = true;
+                        user.PasswordNeverExpires = true;
+                        user.SetPassword(newUserInfo.Password);
+                    }
+
+                    user.Save();
+                    return string.Empty;
+                }
+                return string.Empty;
             }
-            catch
+            catch (Exception ex)
             {
-                return false;
+                var error = String.Format("Exception updating email address for {0} to {1} - {2}", oldUserInfo.Email, newUserInfo.Email, ex.Message);
+                return error;
             }
         }
 
-        private void SetFailedConnectedInfo(UserInfo userInfo)
+        public void RemoveLdapAccount(UserInfo userInfo)
         {
-            userInfo.TaskFailed = true;
-            userInfo.LdapTaskStatus = LdapTaskStatus.ServerConnectionFailed;
+            var user = LdapHelper.GetLdapUser(userInfo, RootPrincipal);
+            if (user != null)
+            {
+                user.Delete();
+            }
+        }
+
+        public UserPrincipal GetUser(UserInfo userInfo)
+        {
+            var user = LdapHelper.GetLdapUser(userInfo, RootPrincipal);
+            return user;
+        }
+
+        public bool VerifyUserCredentials(UserInfo userInfo, string password)
+        {
+            var isValidUser = _rootPrincipal.ValidateCredentials(userInfo.Email, password);
+            return isValidUser;
+        }
+
+        public bool IsUserExists(UserInfo userInfo)
+        {
+            var user = LdapHelper.GetLdapUser(userInfo, RootPrincipal);
+            return user != null;
         }
     }
 }
